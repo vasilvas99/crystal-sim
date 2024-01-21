@@ -6,7 +6,7 @@ import numpy as np
 from shapely import Polygon
 from shapely.plotting import plot_polygon
 
-resolution = 0.01
+resolution = 0.1
 # Channel parameters
 L = 2
 H = 2
@@ -45,17 +45,17 @@ with geom as model:
 
     model.add_physical([plane_surface], "Domain")
     model.add_physical(channel_lines, "Walls")
-    model.add_physical(hole.curve_loop.curves, "Hole")
+    model.add_physical(hole.curve_loop.curves, "Hole") # 
 
     geom.generate_mesh(dim=2)
     gmsh.write("tagged_hole.msh")
     gmsh.clear()
 
 m = meshio.read("tagged_hole.msh")
-
+print(m.cell_sets)
 cells = m.get_cells_type("line")
 cell_data = m.get_cell_data("gmsh:physical", "line")
-hole_points = m.points[cells[cell_data == 3]]
+hole_points = m.points[cells[cell_data == 3]] # 3 is the order of definition?
 hole_points = hole_points.reshape(-1, 3)[:, :2]
 
 
