@@ -46,8 +46,14 @@ INITIAL_POLY_HOLE = [
 ]
 
 
-def initial_condition(x, a=5):
-    return 10 * np.exp(-a * (x[0] ** 2 + x[1] ** 2))
+# def initial_condition(x, a=5):
+#     return 10 * np.exp(-a * (x[0] ** 2 + x[1] ** 2))
+
+def initial_condition(x):
+    B = 5
+    A = 1
+    return B / A + 0.1 * A * np.random.standard_normal(size=x.shape[1])
+
 
 
 def gen_rectangular_dom_with_poly_hole(resolution, l, h, poly_points):
@@ -214,7 +220,7 @@ def main(diff_coef=0.5, delta_t=0.01, prop_coef=0.1):
             shutil.rmtree("plots")
         os.mkdir("plots")
 
-    for i in range(1000):
+    for i in range(200):
         res = calculate_points_at_proc(uh, domain, domain.geometry.x)
         comm.barrier()
         result_all_threads = comm.allgather(res)
@@ -259,6 +265,7 @@ def main(diff_coef=0.5, delta_t=0.01, prop_coef=0.1):
             ax.set_xlim((-L, L))
             ax.set_ylim((-H, H))
             plot_polygon(new_poly, ax=ax)
+            plt.title(f"T = {i*delta_t}, D = {diff_coef}")
             plt.savefig(f"plots/{i}.png")
             plt.close()
 
