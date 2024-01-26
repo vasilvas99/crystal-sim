@@ -204,7 +204,7 @@ def poly_as_gmsh_data(poly: Polygon):
     return res
 
 
-def main(diff_coef=0.5, delta_t=0.01, prop_coef=0.1):
+def main(diff_coef=0.5, delta_t=0.001, prop_coef=0.1):
     domain, _cell_markers, facet_markers = generate_new_domain(
         RES, L, H, INITIAL_POLY_HOLE
     )
@@ -220,7 +220,7 @@ def main(diff_coef=0.5, delta_t=0.01, prop_coef=0.1):
             shutil.rmtree("plots")
         os.mkdir("plots")
 
-    for i in range(200):
+    for i in range(2000):
         res = calculate_points_at_proc(uh, domain, domain.geometry.x)
         comm.barrier()
         result_all_threads = comm.allgather(res)
@@ -265,8 +265,8 @@ def main(diff_coef=0.5, delta_t=0.01, prop_coef=0.1):
             ax.set_xlim((-L, L))
             ax.set_ylim((-H, H))
             plot_polygon(new_poly, ax=ax)
-            plt.title(f"T = {i*delta_t}, D = {diff_coef}")
-            plt.savefig(f"plots/{i}.png")
+            plt.title(f"T = {i*delta_t:.3f}, D = {diff_coef}")
+            plt.savefig(f"plots/{i}.png", dpi=250)
             plt.close()
 
         domain, _cell_markers, facet_markers = generate_new_domain(
