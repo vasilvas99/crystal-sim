@@ -19,7 +19,7 @@ rank = comm.Get_rank()
 size = comm.Get_size()
 MESH_MODEL_RANK = 0
 
-RES = 0.1
+RES = 0.01
 # Channel parameters
 L = 2
 H = 2
@@ -204,7 +204,7 @@ def poly_as_gmsh_data(poly: Polygon):
     return res
 
 
-def main(diff_coef=5, delta_t=0.001, prop_coef=0.1):
+def main(diff_coef=0.5, delta_t=0.001, prop_coef=0.1):
     domain, _cell_markers, facet_markers = generate_new_domain(
         RES, L, H, INITIAL_POLY_HOLE
     )
@@ -264,8 +264,8 @@ def main(diff_coef=5, delta_t=0.001, prop_coef=0.1):
             ax.set_xlim((-L, L))
             ax.set_ylim((-H, H))
 
-            X = np.linspace(-L, L)
-            Y = np.linspace(-H, H)
+            X = np.arange(-L, L, RES)
+            Y = np.arange(-H, H, RES)
             X, Y = np.meshgrid(X, Y)
             Z = interp.interp(X, Y)
             plt.pcolormesh(X, Y, Z, shading="auto", vmin = 3, vmax = 5)
