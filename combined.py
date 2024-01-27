@@ -46,14 +46,14 @@ INITIAL_POLY_HOLE = [
 ]
 
 
-# def initial_condition(x, a=5):
-#     return 10 * np.exp(-a * (x[0] ** 2 + x[1] ** 2))
+# def initial_condition(x, a=2):
+#     return 6 * np.exp(-a * (x[0] ** 2 + x[1] ** 2))
+
 
 def initial_condition(x):
     B = 5
-    A = 1
-    return B / A + 0.1 * A * np.random.standard_normal(size=x.shape[1])
-
+    A = 2
+    return B +  A * np.random.standard_normal(size=x.shape[1])
 
 
 def gen_rectangular_dom_with_poly_hole(resolution, l, h, poly_points):
@@ -204,7 +204,7 @@ def poly_as_gmsh_data(poly: Polygon):
     return res
 
 
-def main(diff_coef=0.5, delta_t=0.001, prop_coef=0.1):
+def main(diff_coef=5, delta_t=0.001, prop_coef=0.1):
     domain, _cell_markers, facet_markers = generate_new_domain(
         RES, L, H, INITIAL_POLY_HOLE
     )
@@ -220,7 +220,7 @@ def main(diff_coef=0.5, delta_t=0.001, prop_coef=0.1):
             shutil.rmtree("plots")
         os.mkdir("plots")
 
-    for i in range(2000):
+    for i in range(700):
         res = calculate_points_at_proc(uh, domain, domain.geometry.x)
         comm.barrier()
         result_all_threads = comm.allgather(res)
@@ -228,7 +228,7 @@ def main(diff_coef=0.5, delta_t=0.001, prop_coef=0.1):
         interp = PiecewiseLinearInterpolator2D(final[:, 0], final[:, 1], final[:, 2])
 
         # now lets update the mesh
-        
+
         # first we evaluate the solution at the hole points
         hole_dofs_proc = fem.locate_dofs_topological(
             V, domain.topology.dim - 1, facet_markers.find(3)
@@ -243,7 +243,7 @@ def main(diff_coef=0.5, delta_t=0.001, prop_coef=0.1):
         boundary_x = hole_all_vals[:, 0]
         boundary_y = hole_all_vals[:, 1]
         boundary_val = hole_all_vals[:, 2]
-        
+
         p = np.column_stack([boundary_x, boundary_y])
         indices, p = sort_coordinates_counterclockwise(p)
         boundary_poly = Polygon(p)
@@ -261,11 +261,26 @@ def main(diff_coef=0.5, delta_t=0.001, prop_coef=0.1):
 
         if rank == 0:
             fig, ax = plt.subplots()
-            ax.scatter(boundary_x, boundary_y, color="r")
             ax.set_xlim((-L, L))
             ax.set_ylim((-H, H))
-            plot_polygon(new_poly, ax=ax)
+
+            X = np.linspace(-L, L)
+            Y = np.linspace(-H, H)
+            X, Y = np.meshgrid(X, Y)
+            Z = interp.interp(X, Y)
+            plt.pcolormesh(X, Y, Z, shading="auto", vmin = 3, vmax = 5)
+
+            plot_polygon(
+                new_poly,
+                add_points=False,
+                edgecolor=None,
+                facecolor=(0, 1, 1, 1),
+                ax=ax,
+            )
+            # ax.scatter(boundary_x, boundary_y, color="r")
+
             plt.title(f"T = {i*delta_t:.3f}, D = {diff_coef}")
+            plt.colorbar()
             plt.savefig(f"plots/{i}.png", dpi=250)
             plt.close()
 
