@@ -245,14 +245,15 @@ def setup_output_dir():
 
 
 def save_frame(
-    sim_diff_coef, sim_delta_t, frame_index, sol_interpolant, crystal_hole_polygon
+    sim_diff_coef, sim_delta_t, frame_index, sol_interpolant, crystal_hole_polygon,
+    calc_domain_L, calc_doman_H, calc_doman_res
 ):
     fig, ax = plt.subplots()
-    ax.set_xlim((-L, L))
-    ax.set_ylim((-H, H))
+    ax.set_xlim((-calc_domain_L, calc_domain_L))
+    ax.set_ylim((-calc_doman_H, calc_doman_H))
 
-    X = np.arange(-L, L, RES)
-    Y = np.arange(-H, H, RES)
+    X = np.arange(-calc_domain_L, calc_domain_L, calc_domain_res)
+    Y = np.arange(-calc_doman_H, calc_doman_H, calc_doman_res)
     X, Y = np.meshgrid(X, Y)
     Z = sol_interpolant.interp(X, Y)
     plt.pcolormesh(X, Y, Z, shading="auto", vmin=3, vmax=7)
