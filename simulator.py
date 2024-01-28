@@ -213,7 +213,9 @@ def get_polygonal_hole_coords_and_vals(domain, facet_markers, V, uh):
     return hole_all_coords_and_vals
 
 
-def calculate_new_poly_hole(poly_hole_coords_and_vals, prop_coef, delta_t):
+def calculate_new_poly_hole(
+    poly_hole_coords_and_vals, prop_coef, delta_t, decimation_tolerance
+):
     boundary_x = poly_hole_coords_and_vals[:, 0]
     boundary_y = poly_hole_coords_and_vals[:, 1]
     boundary_val = poly_hole_coords_and_vals[:, 2]
@@ -283,6 +285,7 @@ def main(
     diff_coef=0.5,
     delta_t=0.001,
     prop_coef=1,
+    decimation_tolerance=0.04,
     calc_domain_res=0.05,
     calc_domain_L=5,
     calc_domain_H=5,
@@ -317,7 +320,7 @@ def main(
         # then we generate a new polygon offset in the direction of vert normals
         # from the old one + solution data
         new_poly = calculate_new_poly_hole(
-            poly_hole_coords_and_vals, prop_coef, delta_t
+            poly_hole_coords_and_vals, prop_coef, delta_t, decimation_tolerance
         )
 
         if rank == 0:
