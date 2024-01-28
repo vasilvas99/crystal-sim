@@ -1,2 +1,5 @@
-.venv
-*msh
+.venv*
+videos*
+*.msh
+*.npy
+*.png
