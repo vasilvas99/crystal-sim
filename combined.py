@@ -1,28 +1,26 @@
-from typing import Any
 import gmsh
+import matplotlib.pyplot as plt
+import numpy as np
 import pygmsh
 import ufl
-from dolfinx import fem, geometry, mesh
+from dolfinx import fem, geometry
 from dolfinx.fem.petsc import assemble_matrix, assemble_vector, create_vector
 from dolfinx.io import gmshio
 from mpi4py import MPI
 from petsc4py import PETSc
 from scipy.interpolate import LinearNDInterpolator
-import numpy as np
-import matplotlib.pyplot as plt
 from shapely import Polygon
 from shapely.plotting import plot_polygon
-
 
 comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
 size = comm.Get_size()
-MESH_MODEL_RANK = 0
+MESH_MODEL_RANK = 0 # rank on which mesh is generated
 
-RES = 0.01
-# Channel parameters
-L = 2
-H = 2
+# Computational Domain Parameter parameters
+RES = 0.05
+L = 5
+H = 5
 
 
 class PiecewiseLinearInterpolator2D:
@@ -34,17 +32,23 @@ class PiecewiseLinearInterpolator2D:
         return np.apply_along_axis(self.interp, axis=0, arr=x)
 
 
-INITIAL_POLY_HOLE = [
-    [0.5, 0.25, 0.0],
-    [0.0, 0.0, 0.0],
-    [0.25, 0.5, 0.0],
-    [0.0, 1.0, 0.0],
-    [0.5, 0.75, 0.0],
-    [1.0, 1.0, 0.0],
-    [0.75, 0.5, 0.0],
-    [1.0, 0.0, 0.0],
-]
+# INITIAL_POLY_HOLE = [
+#     [0.5, 0.25, 0.0],
+#     [0.0, 0.0, 0.0],
+#     [0.25, 0.5, 0.0],
+#     [0.0, 1.0, 0.0],
+#     [0.5, 0.75, 0.0],
+#     [1.0, 1.0, 0.0],
+#     [0.75, 0.5, 0.0],
+#     [1.0, 0.0, 0.0],
+# ]
 
+INITIAL_POLY_HOLE = [
+    [-0.5, 0.5, 0.0],
+    [0.5, 0.5, 0.0],
+    [0.5, -0.5, 0.0],
+    [-0.5, -0.5, 0.0],
+]
 
 # def initial_condition(x, a=2):
 #     return 6 * np.exp(-a * (x[0] ** 2 + x[1] ** 2))
@@ -53,7 +57,7 @@ INITIAL_POLY_HOLE = [
 def initial_condition(x):
     B = 5
     A = 2
-    return B +  A * np.random.standard_normal(size=x.shape[1])
+    return B + A * np.random.standard_normal(size=x.shape[1])
 
 
 def gen_rectangular_dom_with_poly_hole(resolution, l, h, poly_points):
@@ -78,7 +82,12 @@ def gen_rectangular_dom_with_poly_hole(resolution, l, h, poly_points):
     model.synchronize()
     model.add_physical([plane_surface], "Domain")
     model.add_physical(channel_lines, "Walls")
-    model.add_physical(hole.curve_loop.curves, "Hole")  # 3
+    # ORDERING HERE IS VERY IMPORTANT!! Make sure Domain is first, 
+    # walls is second, hole is third.
+    # code bellow makes assumptions based on that...
+    # TODO: Figure out how to make it work via getPhysicalGroup or something
+    # this is very error prone...
+    model.add_physical(hole.curve_loop.curves, "Hole")  # 3 = HOLE_FACET_MARKER
 
     model.generate_mesh(dim=2)
     model.synchronize()
@@ -157,7 +166,7 @@ def calculate_points_at_proc(uh, domain, points):
         np.isfinite(np.isnan(res)).shape == res.shape
     ), "Non-finite value in interpolated result"
 
-    return np.c_[points[:, 0], points[:, 1], res]
+    return np.c_[points[:, 0], points[:, 1], res] # coord + value
 
 
 def sort_coordinates_counterclockwise(list_of_xy_coords):
@@ -204,7 +213,23 @@ def poly_as_gmsh_data(poly: Polygon):
     return res
 
 
-def main(diff_coef=0.5, delta_t=0.001, prop_coef=0.1):
+def get_polygonal_hole_coords_and_vals(domain, facet_markers, V, uh):
+    HOLE_FACET_MARKER = 3  # order of physical definition in gmsh
+
+    hole_dofs_proc = fem.locate_dofs_topological(
+        V, domain.topology.dim - 1, facet_markers.find(HOLE_FACET_MARKER)
+    )
+    mesh_coords_proc = V.tabulate_dof_coordinates()
+    hole_coords_proc = mesh_coords_proc[hole_dofs_proc]
+    hole_values_proc = calculate_points_at_proc(uh, domain, hole_coords_proc)
+
+    comm.barrier()
+    hole_values_all_threads = comm.allgather(hole_values_proc)
+    hole_all_coords_and_vals = np.row_stack(hole_values_all_threads)
+    return hole_all_coords_and_vals
+
+
+def main(diff_coef=0.5, delta_t=0.001, prop_coef=1):
     domain, _cell_markers, facet_markers = generate_new_domain(
         RES, L, H, INITIAL_POLY_HOLE
     )
@@ -230,19 +255,12 @@ def main(diff_coef=0.5, delta_t=0.001, prop_coef=0.1):
         # now lets update the mesh
 
         # first we evaluate the solution at the hole points
-        hole_dofs_proc = fem.locate_dofs_topological(
-            V, domain.topology.dim - 1, facet_markers.find(3)
+        poly_hole_coords_and_vals = get_polygonal_hole_coords_and_vals(
+            domain, facet_markers, V, uh
         )
-        mesh_coords_proc = V.tabulate_dof_coordinates()
-        hole_coords_proc = mesh_coords_proc[hole_dofs_proc]
-        hole_values_proc = calculate_points_at_proc(uh, domain, hole_coords_proc)
-
-        comm.barrier()
-        hole_values_all_threads = comm.allgather(hole_values_proc)
-        hole_all_vals = np.row_stack(hole_values_all_threads)
-        boundary_x = hole_all_vals[:, 0]
-        boundary_y = hole_all_vals[:, 1]
-        boundary_val = hole_all_vals[:, 2]
+        boundary_x = poly_hole_coords_and_vals[:, 0]
+        boundary_y = poly_hole_coords_and_vals[:, 1]
+        boundary_val = poly_hole_coords_and_vals[:, 2]
 
         p = np.column_stack([boundary_x, boundary_y])
         indices, p = sort_coordinates_counterclockwise(p)
@@ -268,7 +286,7 @@ def main(diff_coef=0.5, delta_t=0.001, prop_coef=0.1):
             Y = np.arange(-H, H, RES)
             X, Y = np.meshgrid(X, Y)
             Z = interp.interp(X, Y)
-            plt.pcolormesh(X, Y, Z, shading="auto", vmin = 3, vmax = 5)
+            plt.pcolormesh(X, Y, Z, shading="auto", vmin=3, vmax=7)
 
             plot_polygon(
                 new_poly,
