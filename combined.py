@@ -15,12 +15,18 @@ from shapely.plotting import plot_polygon
 comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
 size = comm.Get_size()
-MESH_MODEL_RANK = 0 # rank on which mesh is generated
+MESH_MODEL_RANK = 0  # rank on which mesh is generated
 
-# Computational Domain Parameter parameters
-RES = 0.05
-L = 5
-H = 5
+DEFAULT_INITIAL_POLY_HOLE = [
+    [0.5, 0.25, 0.0],
+    [0.0, 0.0, 0.0],
+    [0.25, 0.5, 0.0],
+    [0.0, 1.0, 0.0],
+    [0.5, 0.75, 0.0],
+    [1.0, 1.0, 0.0],
+    [0.75, 0.5, 0.0],
+    [1.0, 0.0, 0.0],
+]
 
 
 class PiecewiseLinearInterpolator2D:
@@ -30,28 +36,6 @@ class PiecewiseLinearInterpolator2D:
     def __call__(self, x):
         x = np.array([x[0], x[1]])
         return np.apply_along_axis(self.interp, axis=0, arr=x)
-
-
-# INITIAL_POLY_HOLE = [
-#     [0.5, 0.25, 0.0],
-#     [0.0, 0.0, 0.0],
-#     [0.25, 0.5, 0.0],
-#     [0.0, 1.0, 0.0],
-#     [0.5, 0.75, 0.0],
-#     [1.0, 1.0, 0.0],
-#     [0.75, 0.5, 0.0],
-#     [1.0, 0.0, 0.0],
-# ]
-
-INITIAL_POLY_HOLE = [
-    [-0.5, 0.5, 0.0],
-    [0.5, 0.5, 0.0],
-    [0.5, -0.5, 0.0],
-    [-0.5, -0.5, 0.0],
-]
-
-# def initial_condition(x, a=2):
-#     return 6 * np.exp(-a * (x[0] ** 2 + x[1] ** 2))
 
 
 def initial_condition(x):
@@ -82,7 +66,7 @@ def gen_rectangular_dom_with_poly_hole(resolution, l, h, poly_points):
     model.synchronize()
     model.add_physical([plane_surface], "Domain")
     model.add_physical(channel_lines, "Walls")
-    # ORDERING HERE IS VERY IMPORTANT!! Make sure Domain is first, 
+    # ORDERING HERE IS VERY IMPORTANT!! Make sure Domain is first,
     # walls is second, hole is third.
     # code bellow makes assumptions based on that...
     # TODO: Figure out how to make it work via getPhysicalGroup or something
@@ -166,7 +150,7 @@ def calculate_points_at_proc(uh, domain, points):
         np.isfinite(np.isnan(res)).shape == res.shape
     ), "Non-finite value in interpolated result"
 
-    return np.c_[points[:, 0], points[:, 1], res] # coord + value
+    return np.c_[points[:, 0], points[:, 1], res]  # coord + value
 
 
 def sort_coordinates_counterclockwise(list_of_xy_coords):
@@ -229,21 +213,86 @@ def get_polygonal_hole_coords_and_vals(domain, facet_markers, V, uh):
     return hole_all_coords_and_vals
 
 
-def main(diff_coef=0.5, delta_t=0.001, prop_coef=1):
-    domain, _cell_markers, facet_markers = generate_new_domain(
-        RES, L, H, INITIAL_POLY_HOLE
+def calculate_new_poly_hole(poly_hole_coords_and_vals, prop_coef, delta_t):
+    boundary_x = poly_hole_coords_and_vals[:, 0]
+    boundary_y = poly_hole_coords_and_vals[:, 1]
+    boundary_val = poly_hole_coords_and_vals[:, 2]
+
+    p = np.column_stack([boundary_x, boundary_y])
+    cw_sort_indices, p = sort_coordinates_counterclockwise(p)
+    boundary_poly = Polygon(p)
+    verts = boundary_poly.exterior.coords
+    verts = verts[: len(verts) - 1]
+    vert_normals = calc_poly_vert_normals(verts)  # outer normals
+
+    new_verts = verts + prop_coef * delta_t * boundary_val[cw_sort_indices][
+        :, np.newaxis
+    ] * (vert_normals - np.max(vert_normals)) / np.max(vert_normals)
+    new_poly = make_polygon_valid(Polygon(new_verts))
+    new_poly = new_poly.simplify(
+        0.04, preserve_topology=True
+    )  # Douglas-Peucker decimation
+    return new_poly
+
+
+def setup_output_dir():
+    import os
+    import shutil
+
+    if os.path.isdir("plots"):
+        shutil.rmtree("plots")
+    os.mkdir("plots")
+
+
+def save_frame(
+    sim_diff_coef, sim_delta_t, frame_index, sol_interpolant, crystal_hole_polygon
+):
+    fig, ax = plt.subplots()
+    ax.set_xlim((-L, L))
+    ax.set_ylim((-H, H))
+
+    X = np.arange(-L, L, RES)
+    Y = np.arange(-H, H, RES)
+    X, Y = np.meshgrid(X, Y)
+    Z = sol_interpolant.interp(X, Y)
+    plt.pcolormesh(X, Y, Z, shading="auto", vmin=3, vmax=7)
+
+    plot_polygon(
+        crystal_hole_polygon,
+        add_points=False,
+        edgecolor=None,
+        facecolor=(0, 1, 1, 1),
+        ax=ax,
     )
-    V, uh = run_diffusion(
+    # ax.scatter(boundary_x, boundary_y, color="r")
+
+    plt.title(f"T = {frame_index*sim_delta_t:.3f}, D = {sim_diff_coef}")
+    plt.colorbar()
+    plt.savefig(f"plots/{frame_index}.png", dpi=250)
+    plt.close()
+
+
+def main(
+    diff_coef=0.5,
+    delta_t=0.001,
+    prop_coef=1,
+    calc_domain_res=0.05,
+    calc_domain_L=5,
+    calc_doman_H=5,
+    inital_polygonal_hole=None,
+):
+    if inital_polygonal_hole is None:
+        inital_polygonal_hole = DEFAULT_INITIAL_POLY_HOLE
+
+    domain, _cell_markers, facet_markers = generate_new_domain(
+        calc_domain_res, calc_domain_L, calc_doman_H, inital_polygonal_hole
+    )
+    V_func_space, uh = run_diffusion(
         domain, initial_condition, diff_coef=diff_coef, delta_t=delta_t
     )
 
     if rank == 0:
-        import os
-        import shutil
-
-        if os.path.isdir("plots"):
-            shutil.rmtree("plots")
-        os.mkdir("plots")
+        setup_output_dir()
 
     for i in range(700):
         res = calculate_points_at_proc(uh, domain, domain.geometry.x)
@@ -256,57 +305,24 @@ def main(diff_coef=0.5, delta_t=0.001, prop_coef=1):
 
         # first we evaluate the solution at the hole points
         poly_hole_coords_and_vals = get_polygonal_hole_coords_and_vals(
-            domain, facet_markers, V, uh
+            domain, facet_markers, V_func_space, uh
         )
-        boundary_x = poly_hole_coords_and_vals[:, 0]
-        boundary_y = poly_hole_coords_and_vals[:, 1]
-        boundary_val = poly_hole_coords_and_vals[:, 2]
-
-        p = np.column_stack([boundary_x, boundary_y])
-        indices, p = sort_coordinates_counterclockwise(p)
-        boundary_poly = Polygon(p)
-        verts = boundary_poly.exterior.coords
-        verts = verts[: len(verts) - 1]
-        vert_normals = calc_poly_vert_normals(verts)  # outer normals
-
-        new_verts = verts + prop_coef * delta_t * boundary_val[indices][
-            :, np.newaxis
-        ] * (vert_normals - np.max(vert_normals)) / np.max(vert_normals)
-        new_poly = make_polygon_valid(Polygon(new_verts))
-        new_poly = new_poly.simplify(
-            0.04, preserve_topology=True
-        )  # Douglas-Peucker decimation
+        # then we generate a new polygon offset in the direction of vert normals
+        # from the old one + solution data
+        new_poly = calculate_new_poly_hole(
+            poly_hole_coords_and_vals, prop_coef, delta_t
+        )
 
         if rank == 0:
-            fig, ax = plt.subplots()
-            ax.set_xlim((-L, L))
-            ax.set_ylim((-H, H))
-
-            X = np.arange(-L, L, RES)
-            Y = np.arange(-H, H, RES)
-            X, Y = np.meshgrid(X, Y)
-            Z = interp.interp(X, Y)
-            plt.pcolormesh(X, Y, Z, shading="auto", vmin=3, vmax=7)
-
-            plot_polygon(
-                new_poly,
-                add_points=False,
-                edgecolor=None,
-                facecolor=(0, 1, 1, 1),
-                ax=ax,
-            )
-            # ax.scatter(boundary_x, boundary_y, color="r")
-
-            plt.title(f"T = {i*delta_t:.3f}, D = {diff_coef}")
-            plt.colorbar()
-            plt.savefig(f"plots/{i}.png", dpi=250)
-            plt.close()
+            save_frame(diff_coef, delta_t, i, interp, new_poly)
 
         domain, _cell_markers, facet_markers = generate_new_domain(
-            RES, L, H, poly_as_gmsh_data(new_poly)
+            calc_domain_res, calc_domain_L, calc_doman_H, poly_as_gmsh_data(new_poly)
         )
 
-        V, uh = run_diffusion(domain, interp, diff_coef=diff_coef, delta_t=delta_t)
+        V_func_space, uh = run_diffusion(
+            domain, interp, diff_coef=diff_coef, delta_t=delta_t
+        )
 
 
 if __name__ == "__main__":
