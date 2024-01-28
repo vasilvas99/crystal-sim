@@ -245,15 +245,21 @@ def setup_output_dir():
 
 
 def save_frame(
-    sim_diff_coef, sim_delta_t, frame_index, sol_interpolant, crystal_hole_polygon,
-    calc_domain_L, calc_doman_H, calc_doman_res
+    sim_diff_coef,
+    sim_delta_t,
+    frame_index,
+    sol_interpolant,
+    crystal_hole_polygon,
+    calc_domain_L,
+    calc_domain_H,
+    calc_domain_res,
 ):
-    fig, ax = plt.subplots()
+    _fig, ax = plt.subplots()
     ax.set_xlim((-calc_domain_L, calc_domain_L))
-    ax.set_ylim((-calc_doman_H, calc_doman_H))
+    ax.set_ylim((-calc_domain_H, calc_domain_H))
 
     X = np.arange(-calc_domain_L, calc_domain_L, calc_domain_res)
-    Y = np.arange(-calc_doman_H, calc_doman_H, calc_doman_res)
+    Y = np.arange(-calc_domain_H, calc_domain_H, calc_domain_res)
     X, Y = np.meshgrid(X, Y)
     Z = sol_interpolant.interp(X, Y)
     plt.pcolormesh(X, Y, Z, shading="auto", vmin=3, vmax=7)
@@ -279,14 +285,14 @@ def main(
     prop_coef=1,
     calc_domain_res=0.05,
     calc_domain_L=5,
-    calc_doman_H=5,
+    calc_domain_H=5,
     inital_polygonal_hole=None,
 ):
     if inital_polygonal_hole is None:
         inital_polygonal_hole = DEFAULT_INITIAL_POLY_HOLE
 
     domain, _cell_markers, facet_markers = generate_new_domain(
-        calc_domain_res, calc_domain_L, calc_doman_H, inital_polygonal_hole
+        calc_domain_res, calc_domain_L, calc_domain_H, inital_polygonal_hole
     )
     V_func_space, uh = run_diffusion(
         domain, initial_condition, diff_coef=diff_coef, delta_t=delta_t
@@ -315,10 +321,19 @@ def main(
         )
 
         if rank == 0:
-            save_frame(diff_coef, delta_t, i, interp, new_poly)
+            save_frame(
+                diff_coef,
+                delta_t,
+                i,
+                interp,
+                new_poly,
+                calc_domain_L,
+                calc_domain_L,
+                calc_domain_res,
+            )
 
         domain, _cell_markers, facet_markers = generate_new_domain(
-            calc_domain_res, calc_domain_L, calc_doman_H, poly_as_gmsh_data(new_poly)
+            calc_domain_res, calc_domain_L, calc_domain_H, poly_as_gmsh_data(new_poly)
         )
 
         V_func_space, uh = run_diffusion(
