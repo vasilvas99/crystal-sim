@@ -2,7 +2,7 @@ name: Run simulation
 on:
   workflow_dispatch:
 jobs:
-  container-oregantor-job:
+  container-simulator-job:
     runs-on: ubuntu-latest
     container:
       image: dolfinx/dolfinx:stable
