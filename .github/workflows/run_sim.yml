@@ -1,0 +1,28 @@
+name: Run simulation
+on:
+  workflow_dispatch:
+jobs:
+  container-oregantor-job:
+    runs-on: ubuntu-latest
+    container:
+      image: dolfinx/dolfinx:stable
+    steps:
+      - name: Get number of CPU cores
+        uses: SimenB/github-actions-cpu-cores@v1
+        id: cpu-cores
+
+      - name: Checkout
+        uses: actions/checkout@v3
+    
+      - name: Run simulation
+        run: mpirun -np ${{ steps.cpu-cores.outputs.count }} python3 simulator.py
+        
+      - name: Package Results
+        run: tar -zcvf plots.tar.gz plots/
+        
+      - name: Upload Results
+        uses: actions/upload-artifact@v3
+        with: 
+          name: plots.tar.gz
+          if-no-files-found: error
+          path: plots.tar.gz
