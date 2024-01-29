@@ -14,11 +14,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
       
-      # - name: Install gmsh
-      #   run: apt update && apt install -y gmsh
+      - name: Install gmsh
+        run: apt update && apt install -y gmsh
 
       - name: Install python dependencies
-        run: pip3 install -r requirements.txt
+        run: pip3 install pygmsh numpy scipy matplotlib shapely
     
       - name: Run simulation
         run: mpirun -np ${{ steps.cpu-cores.outputs.count }} python3 simulator.py
